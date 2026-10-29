@@ -42,7 +42,11 @@ function gatherFiles(world) {
 }
 
 async function main() {
-  if (false) { await say("Set PAGE_URL first", "Line 6 of this script still says YOUR-NAME. Put your own page address there (ending with /), then run again."); return; }
+  // ask for the password every time
+  const pa = new Alert(); pa.title = "Password"; pa.message = "Enter the password to open World Workbench.";
+  pa.addSecureTextField("password"); pa.addAction("OK"); pa.addCancelAction("Cancel");
+  const pr = await pa.present(); if (pr < 0) return;
+  PW = (pa.textFieldValue(0) || "").trim(); if (!PW) return;
 
   // 1) make sure the editor page is reachable and is the new version (so the screen never goes black silently)
   let html = "";
@@ -74,7 +78,7 @@ async function main() {
     try { ok = (await wv.evaluateJavaScript("typeof WB!=='undefined' && typeof WB.put==='function'")) === true; } catch (e) {}
     if (!ok) await sleep(500);
   }
-  if (!ok) { await say("Editor did not start", "The page loaded but its editor code did not start. Open " + PAGE_URL + "?embed=1 in Safari to see why."); return; }
+  if (!ok) { await say("Editor did not start", "Wrong password, or the page did not start. Check the password and try again."); return; }
 
   let sent = 0;
   for (const [rel, p] of files) {
