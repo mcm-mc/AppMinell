@@ -41,44 +41,34 @@ function gatherFiles(world) {
   return files;
 }
 
+async function openSample() { // public sample page: nothing can be loaded from or saved to a real world
+  const sv = new WebView(); await sv.loadURL(PAGE_URL); await sv.present(true);
+}
+
 async function main() {
-  // ask for the password every time
-  const pa = new Alert(); pa.title = "Password"; pa.message = "Enter the password to open World Workbench.";
+  // ask for the password every time; a wrong or empty one silently gives the sample page
+  const pa = new Alert(); pa.title = "World Workbench"; pa.message = "Password";
   pa.addSecureTextField("password"); pa.addAction("OK"); pa.addCancelAction("Cancel");
   const pr = await pa.present(); if (pr < 0) return;
-  PW = (pa.textFieldValue(0) || "").trim(); if (!PW) return;
+  const pwd = (pa.textFieldValue(0) || "").trim();
+  if (!pwd) return openSample();
 
-  // 1) make sure the editor page is reachable and is the new version (so the screen never goes black silently)
-  let html = "";
-  try { const rq = new Request(PAGE_URL + "?embed=1"); html = await rq.loadString(); }
-  catch (e) { await say("Cannot reach the editor page", PAGE_URL + "\n\n" + String(e && e.message || e) + "\n\nCheck PAGE_URL and your internet."); return; }
-  if (html.indexOf("workbench-enc") < 0) {
-    await say("Editor page is the old version", "The page at\n" + PAGE_URL + "\ndoes not have the Save-to-game support. Upload the newest index.html to GitHub, wait ~1 minute, and run again.");
-    return;
+  // load the full editor hidden; a wrong password makes that page bounce back to the public page
+  const wv = new WebView();
+  try { await wv.loadURL(PAGE_URL + "app.html?embed=1#" + encodeURIComponent(pwd)); }
+  catch (e) { await say("Cannot reach the page", PAGE_URL + "\n\n" + String(e && e.message || e)); return; }
+  let state = "";
+  for (let t = 0; t < 60 && !state; t++) {
+    try { state = await wv.evaluateJavaScript("(window.WB&&typeof WB.put==='function')?'full':(location.pathname.indexOf('app.html')<0?'sample':'')"); } catch (e) {}
+    if (!state) await sleep(500);
   }
-
-  const ch = new Alert(); ch.title = "World Workbench"; ch.message = "What do you want to open?";
-  ch.addAction("Edit a real world"); ch.addAction("Try the sample world (test only)"); ch.addCancelAction("Cancel");
-  const pickedMode = await ch.presentSheet();
-  if (pickedMode < 0 || pickedMode > 1) return;
-  if (pickedMode === 1) { // sample: normal page, nothing is written to any world
-    const sv = new WebView(); await sv.loadURL(PAGE_URL + "#" + encodeURIComponent(PW)); await sv.present(true); return;
-  }
+  if (state === "sample") return openSample();
+  if (state !== "full") { await say("Editor did not start", "The page did not respond. Check your internet and try again."); return; }
 
   const world = await pickWorld();
   if (!world) return;
   const name = world.split("/").filter(Boolean).pop();
   const files = gatherFiles(world);
-
-  // 2) load the page and send the world while the WebView is NOT shown yet
-  const wv = new WebView();
-  await wv.loadURL(PAGE_URL + "?embed=1#" + encodeURIComponent(PW));
-  let ok = false;
-  for (let t = 0; t < 40 && !ok; t++) {
-    try { ok = (await wv.evaluateJavaScript("typeof WB!=='undefined' && typeof WB.put==='function'")) === true; } catch (e) {}
-    if (!ok) await sleep(500);
-  }
-  if (!ok) { await say("Editor did not start", "Wrong password, or the page did not start. Check the password and try again."); return; }
 
   let sent = 0;
   for (const [rel, p] of files) {
