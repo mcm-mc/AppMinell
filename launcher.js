@@ -41,34 +41,29 @@ function gatherFiles(world) {
   return files;
 }
 
-async function openSample() { // public sample page: nothing can be loaded from or saved to a real world
-  const sv = new WebView(); await sv.loadURL(PAGE_URL); await sv.present(true);
-}
-
 async function main() {
-  // ask for the password every time; a wrong or empty one silently gives the sample page
-  const pa = new Alert(); pa.title = "World Workbench"; pa.message = "Password";
-  pa.addSecureTextField("password"); pa.addAction("OK"); pa.addCancelAction("Cancel");
-  const pr = await pa.present(); if (pr < 0) return;
-  const pwd = (pa.textFieldValue(0) || "").trim();
-  if (!pwd) return openSample();
-
-  // load the full editor hidden; a wrong password makes that page bounce back to the public page
-  const wv = new WebView();
-  try { await wv.loadURL(PAGE_URL + "app.html?embed=1#" + encodeURIComponent(pwd)); }
-  catch (e) { await say("Cannot reach the page", PAGE_URL + "\n\n" + String(e && e.message || e)); return; }
-  let state = "";
-  for (let t = 0; t < 60 && !state; t++) {
-    try { state = await wv.evaluateJavaScript("(window.WB&&typeof WB.put==='function')?'full':(location.pathname.indexOf('app.html')<0?'sample':'')"); } catch (e) {}
-    if (!state) await sleep(500);
+  const ch = new Alert(); ch.title = "World Workbench"; ch.message = "What do you want to open?";
+  ch.addAction("Edit a real world"); ch.addAction("Try the sample world (test only)"); ch.addCancelAction("Cancel");
+  const mode = await ch.presentSheet();
+  if (mode < 0 || mode > 1) return;
+  if (mode === 1) { // sample: normal page, nothing is written to any world
+    const sv = new WebView(); await sv.loadURL(PAGE_URL + "?wk=1"); await sv.present(true); return;
   }
-  if (state === "sample") return openSample();
-  if (state !== "full") { await say("Editor did not start", "The page did not respond. Check your internet and try again."); return; }
-
   const world = await pickWorld();
   if (!world) return;
   const name = world.split("/").filter(Boolean).pop();
   const files = gatherFiles(world);
+
+  // load the editor hidden, send the world, then show it
+  const wv = new WebView();
+  try { await wv.loadURL(PAGE_URL + "?embed=1&wk=1"); }
+  catch (e) { await say("Cannot reach the page", PAGE_URL + "\n\n" + String(e && e.message || e) + "\nCheck your internet and the page address."); return; }
+  let ok = false;
+  for (let t = 0; t < 40 && !ok; t++) {
+    try { ok = (await wv.evaluateJavaScript("typeof WB!=='undefined' && typeof WB.put==='function'")) === true; } catch (e) {}
+    if (!ok) await sleep(500);
+  }
+  if (!ok) { await say("Editor did not start", "The page loaded but its editor code did not start. Make sure the newest index.html is uploaded, wait a minute, and try again."); return; }
 
   let sent = 0;
   for (const [rel, p] of files) {
